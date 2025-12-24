@@ -116,6 +116,7 @@ class ReviewService:
                     photo_filename = self.file_service.save_review_photo(photo, review_id)
                 except Exception as e:
                     print(f"画像保存エラー: {e}")
+                    self.review_repo.delete(review_id)
                     conn.rollback()
                     return {'success': False, 'error': '画像の保存に失敗しました'}
 
@@ -128,6 +129,8 @@ class ReviewService:
             conn.commit()
         except Exception as e:
             print(f"レビュー投稿トランザクションエラー: {e}")
+            if review_id:
+                self.review_repo.delete(review_id)
             conn.rollback()
             return {'success': False, 'error': 'レビューの投稿に失敗しました'}
         finally:
