@@ -32,14 +32,14 @@ class ReviewRepository:
         finally:
             close_db(conn)
 
-    def create(self, review_data):
+    def create(self, review_data, conn=None):
         """レビューを作成"""
-        conn = get_db()
-        if not conn:
+        own_conn = conn or get_db()
+        if not own_conn:
             return None
 
         try:
-            cursor = conn.cursor()
+            cursor = own_conn.cursor()
             cursor.execute('''
                 INSERT INTO reviews (user_id, spot_id, review_content, rating)
                 VALUES (?, ?, ?, ?)
@@ -49,35 +49,43 @@ class ReviewRepository:
                 review_data['review_content'],
                 review_data['rating']
             ))
-            conn.commit()
             review_id = cursor.lastrowid
+            if conn is None:
+                own_conn.commit()
             return review_id
         except Exception as e:
             print(f"レビュー作成エラー: {e}")
+            if conn is None:
+                own_conn.rollback()
             return None
         finally:
-            close_db(conn)
+            if conn is None:
+                close_db(own_conn)
 
-    def update_photo_filename(self, review_id, photo_filename):
+    def update_photo_filename(self, review_id, photo_filename, conn=None):
         """レビューの写真ファイル名を更新"""
-        conn = get_db()
-        if not conn:
+        own_conn = conn or get_db()
+        if not own_conn:
             return False
 
         try:
-            cursor = conn.cursor()
+            cursor = own_conn.cursor()
             cursor.execute('''
                 UPDATE reviews
                 SET photo_filename = ?
                 WHERE review_id = ?
             ''', (photo_filename, review_id))
-            conn.commit()
+            if conn is None:
+                own_conn.commit()
             return True
         except Exception as e:
             print(f"写真ファイル名更新エラー: {e}")
+            if conn is None:
+                own_conn.rollback()
             return False
         finally:
-            close_db(conn)
+            if conn is None:
+                close_db(own_conn)
 
     def find_by_id(self, review_id):
         """IDでレビューを取得"""

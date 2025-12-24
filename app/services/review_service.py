@@ -1,6 +1,7 @@
 """
 レビューのビジネスロジック
 """
+from repositories.database import get_db, close_db
 from repositories.review_repository import ReviewRepository
 from services.file_service import FileService
 
@@ -96,23 +97,43 @@ class ReviewService:
             'review_content': review_content,
             'rating': rating
         }
-        review_id = self.review_repo.create(review_data)
 
-        if not review_id:
-            return {'success': False, 'error': 'レビューの作成に失敗しました'}
+        conn = get_db()
+        if not conn:
+            return {'success': False, 'error': 'データベース接続に失敗しました'}
 
-        # 画像保存
+        review_id = None
         photo_filename = None
-        if photo and photo.filename:
-            try:
-                photo_filename = self.file_service.save_review_photo(photo, review_id)
-                self.review_repo.update_photo_filename(review_id, photo_filename)
-            except Exception as e:
-                print(f"画像保存エラー: {e}")
-                # トランザクション処理不備
-                # 画像保存失敗時にレビューをロールバックしていない
-                # 本来はトランザクションを使って、画像保存失敗時はレビューも削除すべき
-                # 画像保存失敗してもレビューは作成済みなので成功として返す
+
+        try:
+            review_id = self.review_repo.create(review_data, conn=conn)
+            if not review_id:
+                conn.rollback()
+                return {'success': False, 'error': 'レビューの作成に失敗しました'}
+
+            if photo and photo.filename:
+                try:
+                    photo_filename = self.file_service.save_review_photo(photo, review_id)
+                except Exception as e:
+                    self.review_repo.delete(review_id)
+                    print(f"画像保存エラー: {e}")
+                    conn.rollback()
+                    return {'success': False, 'error': '画像の保存に失敗しました'}
+
+                if not self.review_repo.update_photo_filename(review_id, photo_filename, conn=conn):
+                    print("レビュー画像ファイル名更新エラー")
+                    conn.rollback()
+                    self.file_service.delete_review_photo(photo_filename)
+                    return {'success': False, 'error': 'レビュー画像の登録に失敗しました'}
+
+            conn.commit()
+        except Exception as e:
+            self.review_repo.delete(review_id)
+            print(f"レビュー投稿トランザクションエラー: {e}")
+            conn.rollback()
+            return {'success': False, 'error': 'レビューの投稿に失敗しました'}
+        finally:
+            close_db(conn)
 
         return {
             'success': True,
